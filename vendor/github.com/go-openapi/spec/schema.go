@@ -238,6 +238,7 @@ type SchemaProps struct {
 	Dependencies         Dependencies      `json:"dependencies,omitempty"`
 	AdditionalItems      *SchemaOrBool     `json:"additionalItems,omitempty"`
 	Definitions          Definitions       `json:"definitions,omitempty"`
+	XJdcloudModule        string            `json:"x-jdcloud-module,omitempty"`
 }
 
 type SwaggerSchemaProps struct {

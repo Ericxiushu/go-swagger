@@ -108,6 +108,9 @@ It aims to represent the contract of your API with a language agnostic descripti
 		case "spec":
 			cmd.ShortDescription = "generate a swagger spec document from a go application"
 			cmd.LongDescription = cmd.ShortDescription
+		case "specjd":
+			cmd.ShortDescription = "generate a swagger specjd document from a go application"
+			cmd.LongDescription = cmd.ShortDescription
 		case "client":
 			cmd.ShortDescription = "generate all the files for a client library"
 			cmd.LongDescription = cmd.ShortDescription

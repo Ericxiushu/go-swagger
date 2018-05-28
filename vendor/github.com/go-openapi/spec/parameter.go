@@ -71,6 +71,7 @@ type ParamProps struct {
 	Required        bool    `json:"required,omitempty"`
 	Schema          *Schema `json:"schema,omitempty"`          // when in == "body"
 	AllowEmptyValue bool    `json:"allowEmptyValue,omitempty"` // when in == "query" || "formData"
+	XJdcloudTiered  *bool   `json:"x-jdcloud-tiered,omitempty"`
 }
 
 // Parameter a unique parameter is defined by a combination of a [name](#parameterName) and [location](#parameterIn).
