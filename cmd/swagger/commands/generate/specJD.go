@@ -15,15 +15,19 @@
 package generate
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
+	"unicode"
 
 	"github.com/go-openapi/spec"
 	"github.com/go-swagger/go-swagger/scan"
 	flags "github.com/jessevdk/go-flags"
+
+	"github.com/ghodss/yaml"
 )
 
 var XJdcloudModule string
@@ -65,11 +69,14 @@ func (s *SpecFileJD) Execute(args []string) error {
 
 func writeToFileForJD(swspec *spec.Swagger, pretty bool) error {
 
+	specMap := make(map[string]spec.Swagger, 0)
+	// modelsMap := make(map[string]spec.Swagger, 0)
+
 	rootPath := "./"
 	servicePath := fmt.Sprintf("%s/service", rootPath)
-	serviceFile := fmt.Sprintf("%s/swagger.json", servicePath)
+	// serviceFile := fmt.Sprintf("%s/swagger.json", servicePath)
 	modelsPath := fmt.Sprintf("%s/model", rootPath)
-	modelsFile := fmt.Sprintf("%s/models.json", modelsPath)
+	// modelsFile := fmt.Sprintf("%s/models.json", modelsPath)
 
 	os.MkdirAll(servicePath, 0777)
 	os.MkdirAll(modelsPath, 0777)
@@ -77,32 +84,84 @@ func writeToFileForJD(swspec *spec.Swagger, pretty bool) error {
 	var serviceb []byte
 	var modelsb []byte
 	var err error
+	var swsitem spec.Swagger
+	var fileName string
+	var ok bool
 
-	serviceSpec := *swspec
-	modelsSpec := new(spec.Swagger)
+	for k, v := range swspec.Paths.Paths {
 
-	serviceSpec.Definitions = nil
+		if fileName, ok = v.Extensions.GetString(scan.SaveFileTag); !ok {
+			fileName = "Default"
+		}
 
-	modelsSpec.Definitions = swspec.Definitions
-	modelsSpec.Swagger = swspec.Swagger
+		delete(v.Extensions, scan.SaveFileTag)
 
-	if pretty {
-		serviceb, err = json.MarshalIndent(serviceSpec, "", "  ")
+		if swsitem, ok = specMap[fileName]; !ok {
+			swsitem = *swspec
+			swsitem.Definitions = nil
+			swsitem.Paths = &spec.Paths{
+				Paths: make(map[string]spec.PathItem, 0),
+			}
+		}
+
+		swsitem.Paths.Paths[k] = v
+
+		specMap[fileName] = swsitem
+	}
+
+	for k, v := range specMap {
+
+		serviceb, err = json.MarshalIndent(v, "", "  ")
+		if err != nil {
+			return err
+		}
+
+		b, err := yaml.JSONToYAML(formatRef(serviceb))
+		if err != nil {
+			fmt.Println("【ERROR】", err)
+			return err
+		}
+
+		err = ioutil.WriteFile(fmt.Sprintf("%s/%s.yaml", servicePath, k), b, 0644)
+		if err != nil {
+			return err
+		}
+	}
+
+	for k, v := range swspec.Definitions {
+
+		modelsSpec := new(spec.Swagger)
+		modelsSpec.Swagger = swspec.Swagger
+
+		modelsSpec.Definitions = map[string]spec.Schema{
+			Lowfirst(k): v,
+		}
+
 		modelsb, err = json.MarshalIndent(modelsSpec, "", "  ")
-	} else {
-		serviceb, err = json.Marshal(serviceSpec)
-		modelsb, err = json.Marshal(modelsSpec)
-	}
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
+
+		b, err := yaml.JSONToYAML(formatRef(modelsb))
+		if err != nil {
+			fmt.Println("【ERROR】", err)
+			return err
+		}
+
+		err = ioutil.WriteFile(fmt.Sprintf("%s/%s.yaml", modelsPath, UpFirst(k)), b, 0644)
+		if err != nil {
+			return err
+		}
+
 	}
 
-	err = ioutil.WriteFile(serviceFile, serviceb, 0644)
-	if err != nil {
-		return err
-	}
+	// modelsSpec := new(spec.Swagger)
+	// modelsSpec.Swagger = swspec.Swagger
+	// modelsSpec.Definitions = swspec.Definitions
+	// modelsb, err = json.MarshalIndent(modelsSpec, "", "  ")
+	// ioutil.WriteFile(fmt.Sprintf("%s/models.json", modelsPath), modelsb, 0644)
 
-	return ioutil.WriteFile(modelsFile, modelsb, 0644)
+	return nil
 
 }
 
@@ -140,13 +199,17 @@ func setXJD(swspec *spec.Swagger, item spec.PathItem) spec.PathItem {
 
 			if k == 200 {
 				strs := strings.Split(v.Ref.Ref.GetURL().String(), "/")
-				objName := strs[len(strs)-1]
 
-				if _, ok := swspec.Responses[objName]; ok {
-					itemOperation.Responses.StatusCodeResponses[k] = swspec.Responses[objName]
-				} else {
-					fmt.Printf("【ERROR】get obj %s error\n", objName)
+				if len(strs) > 1 {
+					objName := strs[len(strs)-1]
+
+					if _, ok := swspec.Responses[objName]; ok {
+						itemOperation.Responses.StatusCodeResponses[k] = swspec.Responses[objName]
+					} else {
+						fmt.Printf("【ERROR】get obj %s error\n", objName)
+					}
 				}
+
 			} else {
 				delete(itemOperation.Responses.StatusCodeResponses, k)
 			}
@@ -154,13 +217,21 @@ func setXJD(swspec *spec.Swagger, item spec.PathItem) spec.PathItem {
 		}
 
 		f := false
-		for k, v := range itemOperation.Parameters {
+		list := []spec.Parameter{}
+		for _, v := range itemOperation.Parameters {
 			if v.In == "body" {
-				itemOperation.Parameters[k].XJdcloudTiered = &f
+				v.XJdcloudTiered = &f
+			}
+			if v.In == "header" {
+				continue
 			}
 
-			itemOperation.Parameters[k].Extensions = doRemovego(v.Extensions)
+			v.Extensions = doRemovego(v.Extensions)
+
+			list = append(list, v)
 		}
+
+		itemOperation.Parameters = list
 
 	}
 
@@ -204,4 +275,36 @@ func setXJD(swspec *spec.Swagger, item spec.PathItem) spec.PathItem {
 
 	return item
 
+}
+
+func Lowfirst(str string) string {
+	for i, v := range str {
+		return string(unicode.ToLower(v)) + str[i+1:]
+	}
+	return ""
+}
+
+func UpFirst(str string) string {
+	for i, v := range str {
+		return string(unicode.ToUpper(v)) + str[i+1:]
+	}
+	return ""
+}
+
+func formatRef(b []byte) []byte {
+
+	t := bytes.Split(b, []byte("  "))
+	for k, v := range t {
+
+		if i := bytes.Index(v, []byte("#/definitions/")); i > -1 {
+			li := bytes.Split(v, []byte("/"))
+			li[0] = []byte(fmt.Sprintf("%s../model/%s.yaml#", string(bytes.Trim(li[0], "#")), bytes.Title(bytes.Trim(bytes.Trim(li[2], "\n\t"), "\""))))
+
+			li[2] = []byte(Lowfirst(string(li[2])))
+
+			t[k] = bytes.Join(li, []byte("/"))
+		}
+	}
+
+	return bytes.Join(t, []byte("  "))
 }

@@ -23,6 +23,10 @@ import (
 	"golang.org/x/tools/go/loader"
 )
 
+const (
+	SaveFileTag = "x-save-file"
+)
+
 func newOperationsParser(prog *loader.Program) *operationsParser {
 	return &operationsParser{
 		program: prog,
@@ -63,6 +67,12 @@ func (op *operationsParser) Parse(gofile *ast.File, target interface{}) error {
 		if err := sp.UnmarshalSpec(op.UnmarshalJSON); err != nil {
 			return fmt.Errorf("operation (%s): %v", op.ID, err)
 		}
+
+		file, ok := op.Extensions.GetString(SaveFileTag)
+		if ok && len(file) > 0 {
+			pthObj.AddExtension(SaveFileTag, file)
+		}
+		delete(op.Extensions, SaveFileTag)
 
 		if tgt.Paths == nil {
 			tgt.Paths = make(map[string]spec.PathItem)
